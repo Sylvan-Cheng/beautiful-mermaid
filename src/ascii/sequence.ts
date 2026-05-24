@@ -13,7 +13,8 @@ import { parseSequenceDiagram } from '../sequence/parser.ts'
 import type { SequenceDiagram, Block } from '../sequence/types.ts'
 import type { Canvas, AsciiConfig, RoleCanvas, CharRole, AsciiTheme, ColorMode } from './types.ts'
 import { mkCanvas, mkRoleCanvas, canvasToString, increaseSize, increaseRoleCanvasSize, setRole } from './canvas.ts'
-import { splitLines, maxLineWidth, lineCount } from './multiline-utils.ts'
+import { splitLines, maxLineWidth, lineCount, visualWidth } from './multiline-utils.ts'
+import { CJK_PAD, isWideChar } from './cjk.ts'
 
 /** Classify a box-drawing character as 'border' or 'text'. */
 function classifyBoxChar(ch: string): CharRole {
@@ -148,7 +149,7 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
         curY += 1
         const note = diagram.notes[n]!
         const nLines = splitLines(note.text)
-        const nWidth = Math.max(...nLines.map(l => l.length)) + 4
+        const nWidth = Math.max(...nLines.map(l => visualWidth(l))) + 4
         const nHeight = nLines.length + 2
 
         // Determine x position based on note.position
@@ -198,8 +199,8 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
     const msg = diagram.messages[m]!
     if (msg.from === msg.to) {
       const fi = actorIdx.get(msg.from)!
-      const selfRight = llX[fi]! + 6 + 2 + msg.label.length
-      totalW = Math.max(totalW, selfRight + 1)
+      const selfRight = llX[fi]! + 6 + 2 + visualWidth(msg.label)
+      totalW = Math.max(totalW, selfRight + 2)
     }
   }
   for (const np of notePositions) {
@@ -215,6 +216,24 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
       canvas[x]![y] = ch
       setRole(rc, x, y, role)
     }
+  }
+
+  /** Write a text string with CJK sentinel padding — returns next x position. */
+  function setText(col: number, row: number, text: string, role: CharRole): number {
+    let cx = col
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]!
+      setC(cx, row, ch, role)
+      cx++
+      if (isWideChar(ch)) {
+        if (cx >= 0 && cx < canvas.length && row >= 0 && row < (canvas[0]?.length ?? 0)) {
+          canvas[cx]![row] = CJK_PAD
+          setRole(rc, cx, row, role)
+        }
+        cx++
+      }
+    }
+    return cx
   }
 
   // ---- DRAW: helper to place a bordered actor box (supports multi-line labels) ----
@@ -236,12 +255,10 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
       const row = topY + 1 + i
       setC(left, row, V, 'border')
       setC(left + w - 1, row, V, 'border')
-      // Center this line within the box
+      // Center this line within the box using visual width
       const line = lines[i]!
-      const ls = left + 1 + boxPad + Math.floor((maxW - line.length) / 2)
-      for (let j = 0; j < line.length; j++) {
-        setC(ls + j, row, line[j]!, 'text')
-      }
+      const ls = left + 1 + boxPad + Math.floor((maxW - visualWidth(line)) / 2)
+      setText(ls, row, line, 'text')
     }
 
     // Bottom border
@@ -305,9 +322,7 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
       // Row 1: vertical on right side + label
       setC(fromX + loopW, y0 + 1, V, 'line')
       const labelX = fromX + loopW + 2
-      for (let i = 0; i < msg.label.length; i++) {
-        if (labelX + i < totalW) setC(labelX + i, y0 + 1, msg.label[i]!, 'text')
-      }
+      setText(labelX, y0 + 1, msg.label, 'text')
 
       // Row 2: arrow-back + horizontal + bottom-right corner
       const arrowChar = isFilled ? (useAscii ? '<' : '◀') : (useAscii ? '<' : '◁')
@@ -326,12 +341,9 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
 
       for (let lineIdx = 0; lineIdx < msgLines.length; lineIdx++) {
         const line = msgLines[lineIdx]!
-        const labelStart = midX - Math.floor(line.length / 2)
+        const labelStart = midX - Math.floor(visualWidth(line) / 2)
         const y = labelY + lineIdx
-        for (let i = 0; i < line.length; i++) {
-          const lx = labelStart + i
-          if (lx >= 0 && lx < totalW) setC(lx, y, line[i]!, 'text')
-        }
+        setText(labelStart, y, line, 'text')
       }
 
       // Draw arrow line
@@ -381,9 +393,7 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
 
     for (let lineIdx = 0; lineIdx < hdrLines.length && topY + lineIdx < botY; lineIdx++) {
       const line = hdrLines[lineIdx]!
-      for (let i = 0; i < line.length && bLeft + 1 + i < bRight; i++) {
-        setC(bLeft + 1 + i, topY + lineIdx, line[i]!, 'text')
-      }
+      setText(bLeft + 1, topY + lineIdx, line.slice(0, bRight - bLeft - 1), 'text')
     }
 
     // Bottom border
@@ -409,9 +419,7 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
       const dLabel = block.dividers[d]!.label
       if (dLabel) {
         const dStr = `[${dLabel}]`
-        for (let i = 0; i < dStr.length && bLeft + 1 + i < bRight; i++) {
-          setC(bLeft + 1 + i, dY, dStr[i]!, 'text')
-        }
+        setText(bLeft + 1, dY, dStr, 'text')
       }
     }
   }
@@ -431,9 +439,7 @@ export function renderSequenceAscii(text: string, config: AsciiConfig, colorMode
       const ly = np.y + 1 + l
       setC(np.x, ly, V, 'border')
       setC(np.x + np.width - 1, ly, V, 'border')
-      for (let i = 0; i < np.lines[l]!.length; i++) {
-        setC(np.x + 2 + i, ly, np.lines[l]![i]!, 'text')
-      }
+      setText(np.x + 2, ly, np.lines[l]!, 'text')
     }
     // Bottom border
     const by = np.y + np.height - 1

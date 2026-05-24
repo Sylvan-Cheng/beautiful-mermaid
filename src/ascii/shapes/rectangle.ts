@@ -9,7 +9,8 @@
 import type { Canvas, DrawingCoord, Direction } from '../types.ts'
 import { Up, Down, Left, Right, UpperLeft, UpperRight, LowerLeft, LowerRight, Middle } from '../types.ts'
 import { mkCanvas } from '../canvas.ts'
-import { splitLines } from '../multiline-utils.ts'
+import { splitLines, visualWidth } from '../multiline-utils.ts'
+import { CJK_PAD, isWideChar } from '../cjk.ts'
 import type { ShapeRenderer, ShapeDimensions, ShapeRenderOptions } from './types.ts'
 import { dirEquals } from '../edge-routing.ts'
 import { type CornerChars, getCorners } from './corners.ts'
@@ -24,11 +25,11 @@ import { type CornerChars, getCorners } from './corners.ts'
  */
 export function getBoxDimensions(label: string, options: ShapeRenderOptions): ShapeDimensions {
   const lines = splitLines(label)
-  const maxLineWidth = Math.max(...lines.map(l => l.length), 0)
+  const maxLineVw = Math.max(...lines.map(l => visualWidth(l)), 0)
   const lineCount = lines.length
 
   // Width: 2*padding + maxLineWidth + 2 border chars
-  const innerWidth = 2 * options.padding + maxLineWidth
+  const innerWidth = 2 * options.padding + maxLineVw
   const width = innerWidth + 2
 
   // Height: lineCount + 2*padding + 2 border chars
@@ -43,7 +44,7 @@ export function getBoxDimensions(label: string, options: ShapeRenderOptions): Sh
     labelArea: {
       x: 1 + options.padding,
       y: 1 + options.padding,
-      width: maxLineWidth,
+      width: maxLineVw,
       height: lineCount,
     },
     // Grid layout: [border=1, content, border=1]
@@ -108,13 +109,23 @@ export function renderBox(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
-    const textX = Math.floor(w / 2) - Math.ceil(line.length / 2) + 1
-    for (let j = 0; j < line.length; j++) {
-      const x = textX + j
+    const vw = visualWidth(line)
+    const textX = Math.floor(w / 2) - Math.ceil(vw / 2) + 1
+    let col = textX
+    for (let chIdx = 0; chIdx < line.length; chIdx++) {
+      const ch = line[chIdx]!
+      const x = col
       const y = startY + i
       if (x >= 0 && x < canvas.length && y >= 0 && y < canvas[0]!.length) {
-        canvas[x]![y] = line[j]!
+        canvas[x]![y] = ch
       }
+    col++
+    if (isWideChar(ch) && col < canvas.length && startY + i < canvas[0]!.length) {
+      if (canvas[col]?.[startY + i] === ' ') {
+        canvas[col]![startY + i] = CJK_PAD
+      }
+      col++
+    }
     }
   }
 

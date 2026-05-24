@@ -66,7 +66,7 @@ function parseFlowchart(lines: string[]): MermaidGraph {
     const line = lines[i]!
 
     // --- classDef: `classDef name prop:val,prop:val` ---
-    const classDefMatch = line.match(/^classDef\s+(\w+)\s+(.+)$/)
+    const classDefMatch = line.match(/^classDef\s+([\w\p{L}-]+)\s+(.+)$/u)
     if (classDefMatch) {
       const name = classDefMatch[1]!
       const propsStr = classDefMatch[2]!
@@ -76,7 +76,7 @@ function parseFlowchart(lines: string[]): MermaidGraph {
     }
 
     // --- class assignment: `class A,B className` ---
-    const classAssignMatch = line.match(/^class\s+([\w,-]+)\s+(\w+)$/)
+    const classAssignMatch = line.match(/^class\s+([\w\p{L},-]+)\s+([\w\p{L}-]+)$/u)
     if (classAssignMatch) {
       const nodeIds = classAssignMatch[1]!.split(',').map(s => s.trim())
       const className = classAssignMatch[2]!
@@ -87,7 +87,7 @@ function parseFlowchart(lines: string[]): MermaidGraph {
     }
 
     // --- style statement: `style A,B fill:#f00,stroke:#333` ---
-    const styleMatch = line.match(/^style\s+([\w,-]+)\s+(.+)$/)
+    const styleMatch = line.match(/^style\s+([\w\p{L},-]+)\s+(.+)$/u)
     if (styleMatch) {
       const nodeIds = styleMatch[1]!.split(',').map(s => s.trim())
       const props = parseStyleProps(styleMatch[2]!)
@@ -128,16 +128,16 @@ function parseFlowchart(lines: string[]): MermaidGraph {
       const rest = subgraphMatch[1]!.trim()
       // Check for "subgraph id [Label]" form
       // ID can contain hyphens (e.g. "us-east"), so use [\w-]+ not \w+
-      const bracketMatch = rest.match(/^([\w-]+)\s*\[(.+)\]$/)
+      const bracketMatch = rest.match(/^([\w\p{L}-]+)\s*\[(.+)\]$/u)
       let id: string
       let label: string
       if (bracketMatch) {
         id = bracketMatch[1]!
         label = normalizeBrTags(bracketMatch[2]!)
       } else {
-        // Use the label text as id (slugified)
+        // Use the label text as id (slugified, preserving Unicode letters)
         label = normalizeBrTags(rest)
-        id = rest.replace(/\s+/g, '_').replace(/[^\w]/g, '')
+        id = rest.replace(/\s+/g, '_').replace(/[^\w\p{L}]/gu, '')
       }
       const sg: MermaidSubgraph = { id, label, nodeIds: [], children: [] }
       subgraphStack.push(sg)
@@ -412,32 +412,32 @@ const TEXT_ARROW_REGEX = /^(<)?(--|-\.|==)\s+(.+?)\s+(-->|---|\.\->|-\.\-|==>|==
  */
 const NODE_PATTERNS: Array<{ regex: RegExp; shape: NodeShape }> = [
   // Triple delimiters (must be first)
-  { regex: /^([\w-]+)\(\(\((.+?)\)\)\)/, shape: 'doublecircle' },  // A(((text)))
+  { regex: /^([\w\p{L}-]+)\(\(\((.+?)\)\)\)/u, shape: 'doublecircle' },  // A(((text)))
 
   // Double delimiters with mixed brackets
-  { regex: /^([\w-]+)\(\[(.+?)\]\)/,     shape: 'stadium' },       // A([text])
-  { regex: /^([\w-]+)\(\((.+?)\)\)/,     shape: 'circle' },        // A((text))
-  { regex: /^([\w-]+)\[\[(.+?)\]\]/,     shape: 'subroutine' },    // A[[text]]
-  { regex: /^([\w-]+)\[\((.+?)\)\]/,     shape: 'cylinder' },      // A[(text)]
+  { regex: /^([\w\p{L}-]+)\(\[(.+?)\]\)/u,     shape: 'stadium' },       // A([text])
+  { regex: /^([\w\p{L}-]+)\(\((.+?)\)\)/u,     shape: 'circle' },        // A((text))
+  { regex: /^([\w\p{L}-]+)\[\[(.+?)\]\]/u,     shape: 'subroutine' },    // A[[text]]
+  { regex: /^([\w\p{L}-]+)\[\((.+?)\)\]/u,     shape: 'cylinder' },      // A[(text)]
 
   // Trapezoid variants — must come before plain [text]
-  { regex: /^([\w-]+)\[\/(.+?)\\\]/,     shape: 'trapezoid' },     // A[/text\]
-  { regex: /^([\w-]+)\[\\(.+?)\/\]/,     shape: 'trapezoid-alt' }, // A[\text/]
+  { regex: /^([\w\p{L}-]+)\[\/(.+?)\\\]/u,     shape: 'trapezoid' },     // A[/text\]
+  { regex: /^([\w\p{L}-]+)\[\\(.+?)\/\]/u,     shape: 'trapezoid-alt' }, // A[\text/]
 
   // Asymmetric flag shape
-  { regex: /^([\w-]+)>(.+?)\]/,          shape: 'asymmetric' },    // A>text]
+  { regex: /^([\w\p{L}-]+)>(.+?)\]/u,          shape: 'asymmetric' },    // A>text]
 
   // Double curly braces (hexagon) — must come before single {text}
-  { regex: /^([\w-]+)\{\{(.+?)\}\}/,     shape: 'hexagon' },       // A{{text}}
+  { regex: /^([\w\p{L}-]+)\{\{(.+?)\}\}/u,     shape: 'hexagon' },       // A{{text}}
 
   // Single-char delimiters (last — most common, least specific)
-  { regex: /^([\w-]+)\[(.+?)\]/,         shape: 'rectangle' },     // A[text]
-  { regex: /^([\w-]+)\((.+?)\)/,         shape: 'rounded' },       // A(text)
-  { regex: /^([\w-]+)\{(.+?)\}/,         shape: 'diamond' },       // A{text}
+  { regex: /^([\w\p{L}-]+)\[(.+?)\]/u,         shape: 'rectangle' },     // A[text]
+  { regex: /^([\w\p{L}-]+)\((.+?)\)/u,         shape: 'rounded' },       // A(text)
+  { regex: /^([\w\p{L}-]+)\{(.+?)\}/u,         shape: 'diamond' },       // A{text}
 ]
 
-/** Regex for a bare node reference (just an ID, no shape brackets) */
-const BARE_NODE_REGEX = /^([\w-]+)/
+/** Regex for a bare node reference (just an ID, no shape brackets). Supports CJK. */
+const BARE_NODE_REGEX = /^([\w\p{L}-]+)/u
 
 /** Regex for ::: class shorthand suffix — matches :::className immediately after a node */
 const CLASS_SHORTHAND_REGEX = /^:::([\w][\w-]*)/

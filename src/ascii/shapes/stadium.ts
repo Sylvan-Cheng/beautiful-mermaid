@@ -8,7 +8,7 @@
 
 import type { Canvas, DrawingCoord, Direction } from '../types.ts'
 import { mkCanvas } from '../canvas.ts'
-import { splitLines } from '../multiline-utils.ts'
+import { splitLines, visualWidth } from '../multiline-utils.ts'
 import type { ShapeRenderer, ShapeDimensions, ShapeRenderOptions } from './types.ts'
 import { getBoxAttachmentPoint } from './rectangle.ts'
 
@@ -30,10 +30,10 @@ import { getBoxAttachmentPoint } from './rectangle.ts'
 export const stadiumRenderer: ShapeRenderer = {
   getDimensions(label: string, options: ShapeRenderOptions): ShapeDimensions {
     const lines = splitLines(label)
-    const maxLineWidth = Math.max(...lines.map(l => l.length), 0)
+    const maxLineVw = Math.max(...lines.map(l => visualWidth(l)), 0)
     const lineCount = lines.length
 
-    const innerWidth = 2 * options.padding + maxLineWidth
+    const innerWidth = 2 * options.padding + maxLineVw
     const width = innerWidth + 4  // Extra for rounded ends
     const innerHeight = lineCount + 2 * options.padding
     const height = Math.max(innerHeight + 2, 3)
@@ -44,7 +44,7 @@ export const stadiumRenderer: ShapeRenderer = {
       labelArea: {
         x: 2 + options.padding,
         y: 1 + options.padding,
-        width: maxLineWidth,
+        width: maxLineVw,
         height: lineCount,
       },
       gridColumns: [2, innerWidth, 2],
@@ -95,12 +95,18 @@ export const stadiumRenderer: ShapeRenderer = {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!
-      const textX = Math.floor(width / 2) - Math.floor(line.length / 2)
-      for (let j = 0; j < line.length; j++) {
-        const x = textX + j
+      const vw = visualWidth(line)
+      const textX = Math.floor(width / 2) - Math.floor(vw / 2)
+      let col = textX
+      for (let chIdx = 0; chIdx < line.length; chIdx++) {
+        const x = col
         const y = startY + i
         if (x > 0 && x < width - 1 && y >= 0 && y < height) {
-          canvas[x]![y] = line[j]!
+          canvas[x]![y] = line[chIdx]!
+        }
+        col++
+        if (visualWidth(line[chIdx]!) === 2 && col < width - 1) {
+          col++
         }
       }
     }

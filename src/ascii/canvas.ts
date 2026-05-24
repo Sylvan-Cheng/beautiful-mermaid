@@ -8,6 +8,7 @@
 
 import type { Canvas, DrawingCoord, RoleCanvas, CharRole, AsciiTheme, ColorMode } from './types.ts'
 import { colorizeLine, DEFAULT_ASCII_THEME } from './ansi.ts'
+import { CJK_PAD, isWideChar, visualWidth } from './cjk.ts'
 
 /**
  * Create a blank canvas filled with spaces.
@@ -291,19 +292,23 @@ export function canvasToString(canvas: Canvas, options?: CanvasToStringOptions):
 
   for (let y = 0; y <= maxY; y++) {
     if (colorMode === 'none' || !roleCanvas) {
-      // Plain text output — no colors
       let line = ''
       for (let x = 0; x <= maxX; x++) {
-        line += canvas[x]![y]!
+        const ch = canvas[x]![y]!
+        if (ch !== CJK_PAD) {
+          line += ch
+        }
       }
       lines.push(line)
     } else {
-      // Colored output — collect chars and roles for this row
       const chars: string[] = []
       const roles: (CharRole | null)[] = []
       for (let x = 0; x <= maxX; x++) {
-        chars.push(canvas[x]![y]!)
-        roles.push(roleCanvas[x]?.[y] ?? null)
+        const ch = canvas[x]![y]!
+        if (ch !== CJK_PAD) {
+          chars.push(ch)
+          roles.push(roleCanvas[x]?.[y] ?? null)
+        }
       }
       lines.push(colorizeLine(chars, roles, theme, colorMode))
     }
@@ -380,6 +385,8 @@ export function flipRoleCanvasVertically(roleCanvas: RoleCanvas): RoleCanvas {
  * Draw text string onto the canvas starting at the given coordinate.
  * By default, preserves existing non-space characters (labels don't overwrite each other).
  * Set forceOverwrite=true to always overwrite (for box content).
+ *
+ * CJK-aware: uses visualWidth for sizing and places wide chars with CJK_PAD sentinels.
  */
 export function drawText(
   canvas: Canvas,
@@ -387,13 +394,23 @@ export function drawText(
   text: string,
   forceOverwrite = false
 ): void {
-  increaseSize(canvas, start.x + text.length, start.y)
+  increaseSize(canvas, start.x + visualWidth(text), start.y)
+  let cx = start.x
   for (let i = 0; i < text.length; i++) {
-    const x = start.x + i
-    const current = canvas[x]![start.y]!
-    // Only write if target is empty or we're forcing overwrite
-    if (forceOverwrite || current === ' ') {
-      canvas[x]![start.y] = text[i]!
+    const ch = text[i]!
+    const current = canvas[cx]?.[start.y]
+    if (forceOverwrite || current === ' ' || current === undefined || current === CJK_PAD) {
+      canvas[cx]![start.y] = ch
+    }
+    cx++
+    if (isWideChar(ch)) {
+      if (cx < canvas.length) {
+        const nextCell = canvas[cx]?.[start.y]
+        if (forceOverwrite || nextCell === ' ' || nextCell === undefined || nextCell === CJK_PAD) {
+          canvas[cx]![start.y] = CJK_PAD
+        }
+      }
+      cx++
     }
   }
 }

@@ -14,7 +14,8 @@ import type { ErDiagram, ErEntity, ErAttribute, Cardinality } from '../er/types.
 import type { Canvas, AsciiConfig, RoleCanvas, CharRole, AsciiTheme, ColorMode } from './types.ts'
 import { mkCanvas, mkRoleCanvas, canvasToString, increaseSize, increaseRoleCanvasSize, setRole } from './canvas.ts'
 import { drawMultiBox } from './draw.ts'
-import { splitLines } from './multiline-utils.ts'
+import { splitLines, visualWidth } from './multiline-utils.ts'
+import { CJK_PAD, isWideChar } from './cjk.ts'
 
 /** Classify a character from a box drawing as 'border' or 'text'. */
 function classifyBoxChar(ch: string): CharRole {
@@ -180,7 +181,7 @@ export function renderErAscii(text: string, config: AsciiConfig, colorMode?: Col
 
     let maxTextW = 0
     for (const section of sections) {
-      for (const line of section) maxTextW = Math.max(maxTextW, line.length)
+      for (const line of section) maxTextW = Math.max(maxTextW, visualWidth(line))
     }
     const boxW = maxTextW + 4 // 2 border + 2 padding
 
@@ -261,6 +262,26 @@ export function renderErAscii(text: string, config: AsciiConfig, colorMode?: Col
       canvas[x]![y] = ch
       setRole(rc, x, y, role)
     }
+  }
+
+  /** Write a text string with CJK sentinel padding — optionally clamped to maxCol. */
+  function setText(col: number, row: number, text: string, role: CharRole, maxCol?: number): number {
+    let cx = col
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]!
+      if (maxCol === undefined || cx <= maxCol) {
+        setC(cx, row, ch, role)
+      }
+      cx++
+      if (isWideChar(ch)) {
+        if (cx >= 0 && cx < canvas.length && row >= 0 && row < (canvas[0]?.length ?? 0)) {
+          canvas[cx]![row] = CJK_PAD
+          setRole(rc, cx, row, role)
+        }
+        cx++
+      }
+    }
+    return cx
   }
 
   // --- Draw entity boxes ---
@@ -344,17 +365,11 @@ export function renderErAscii(text: string, config: AsciiConfig, colorMode?: Col
         // Place lines below the relationship line (lineY + 1, lineY + 2, ...)
         for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
           const line = lines[lineIdx]!
-          const labelStart = Math.max(startX, gapMid - Math.floor(line.length / 2))
+          const labelStart = Math.max(startX, gapMid - Math.floor(visualWidth(line) / 2))
           const labelY = lineY + 1 + lineIdx
-          // Ensure canvas is tall enough
-          increaseSize(canvas, Math.max(labelStart + line.length, 1), Math.max(labelY + 1, 1))
-          increaseRoleCanvasSize(rc, Math.max(labelStart + line.length, 1), Math.max(labelY + 1, 1))
-          for (let i = 0; i < line.length; i++) {
-            const lx = labelStart + i
-            if (lx >= startX && lx <= endX) {
-              setC(lx, labelY, line[i]!, 'text')
-            }
-          }
+          increaseSize(canvas, Math.max(labelStart + visualWidth(line), 1), Math.max(labelY + 1, 1))
+          increaseRoleCanvasSize(rc, Math.max(labelStart + visualWidth(line), 1), Math.max(labelY + 1, 1))
+          setText(labelStart, labelY, line, 'text', endX)
         }
       }
     } else {
@@ -417,14 +432,9 @@ export function renderErAscii(text: string, config: AsciiConfig, colorMode?: Col
           const labelX = lineX + 2
           const y = startLabelY + lineIdx
           if (y >= 0) {
-            for (let i = 0; i < line.length; i++) {
-              const lx = labelX + i
-              if (lx >= 0) {
-                increaseSize(canvas, lx + 1, y + 1)
-                increaseRoleCanvasSize(rc, lx + 1, y + 1)
-                setC(lx, y, line[i]!, 'text')
-              }
-            }
+            increaseSize(canvas, labelX + visualWidth(line) + 1, y + 1)
+            increaseRoleCanvasSize(rc, labelX + visualWidth(line) + 1, y + 1)
+            setText(labelX, y, line, 'text')
           }
         }
       }

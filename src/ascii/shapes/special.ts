@@ -8,7 +8,7 @@
 import type { Canvas, DrawingCoord, Direction } from '../types.ts'
 import { Up, Down, Left, Right } from '../types.ts'
 import { mkCanvas } from '../canvas.ts'
-import { splitLines } from '../multiline-utils.ts'
+import { splitLines, visualWidth } from '../multiline-utils.ts'
 import type { ShapeRenderer, ShapeDimensions, ShapeRenderOptions } from './types.ts'
 import { dirEquals } from '../edge-routing.ts'
 import { getBoxDimensions, renderBox, getBoxAttachmentPoint } from './rectangle.ts'
@@ -28,10 +28,10 @@ import { getCorners } from './corners.ts'
 export const subroutineRenderer: ShapeRenderer = {
   getDimensions(label: string, options: ShapeRenderOptions): ShapeDimensions {
     const lines = splitLines(label)
-    const maxLineWidth = Math.max(...lines.map(l => l.length), 0)
+    const maxLineVw = Math.max(...lines.map(l => visualWidth(l)), 0)
     const lineCount = lines.length
 
-    const innerWidth = 2 * options.padding + maxLineWidth
+    const innerWidth = 2 * options.padding + maxLineVw
     const width = innerWidth + 4  // Double borders on each side
     const innerHeight = lineCount + 2 * options.padding
     const height = innerHeight + 2
@@ -42,7 +42,7 @@ export const subroutineRenderer: ShapeRenderer = {
       labelArea: {
         x: 2 + options.padding,
         y: 1 + options.padding,
-        width: maxLineWidth,
+        width: maxLineVw,
         height: lineCount,
       },
       gridColumns: [2, innerWidth, 2],
@@ -86,12 +86,18 @@ export const subroutineRenderer: ShapeRenderer = {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!
-      const textX = Math.floor(width / 2) - Math.floor(line.length / 2)
-      for (let j = 0; j < line.length; j++) {
-        const x = textX + j
+      const vw = visualWidth(line)
+      const textX = Math.floor(width / 2) - Math.floor(vw / 2)
+      let col = textX
+      for (let chIdx = 0; chIdx < line.length; chIdx++) {
+        const x = col
         const y = startY + i
         if (x > 1 && x < width - 2 && y > 0 && y < height - 1) {
-          canvas[x]![y] = line[j]!
+          canvas[x]![y] = line[chIdx]!
+        }
+        col++
+        if (visualWidth(line[chIdx]!) === 2 && col < width - 2) {
+          col++
         }
       }
     }
@@ -142,10 +148,10 @@ export const doublecircleRenderer: ShapeRenderer = {
 export const cylinderRenderer: ShapeRenderer = {
   getDimensions(label: string, options: ShapeRenderOptions): ShapeDimensions {
     const lines = splitLines(label)
-    const maxLineWidth = Math.max(...lines.map(l => l.length), 0)
+    const maxLineVw = Math.max(...lines.map(l => visualWidth(l)), 0)
     const lineCount = lines.length
 
-    const innerWidth = 2 * options.padding + maxLineWidth
+    const innerWidth = 2 * options.padding + maxLineVw
     const width = innerWidth + 2
     const innerHeight = lineCount + 2 * options.padding + 2  // Extra for curved top/bottom
     const height = innerHeight + 2
@@ -156,7 +162,7 @@ export const cylinderRenderer: ShapeRenderer = {
       labelArea: {
         x: 1 + options.padding,
         y: 2 + options.padding,
-        width: maxLineWidth,
+        width: maxLineVw,
         height: lineCount,
       },
       gridColumns: [1, innerWidth, 1],
@@ -204,12 +210,18 @@ export const cylinderRenderer: ShapeRenderer = {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!
-      const textX = Math.floor(width / 2) - Math.floor(line.length / 2)
-      for (let j = 0; j < line.length; j++) {
-        const x = textX + j
+      const vw = visualWidth(line)
+      const textX = Math.floor(width / 2) - Math.floor(vw / 2)
+      let col = textX
+      for (let chIdx = 0; chIdx < line.length; chIdx++) {
+        const x = col
         const y = startY + i
         if (x > 0 && x < width - 1 && y > 1 && y < height - 2) {
-          canvas[x]![y] = line[j]!
+          canvas[x]![y] = line[chIdx]!
+        }
+        col++
+        if (visualWidth(line[chIdx]!) === 2 && col < width - 1) {
+          col++
         }
       }
     }

@@ -18,7 +18,8 @@ import { mkCanvas, copyCanvas, getCanvasSize, mergeCanvases, drawText, mkRoleCan
 import type { RoleCanvas, CharRole } from './types.ts'
 import { determineDirection, dirEquals } from './edge-routing.ts'
 import { gridToDrawingCoord, lineToDrawing } from './grid.ts'
-import { splitLines } from './multiline-utils.ts'
+import { splitLines, visualWidth } from './multiline-utils.ts'
+import { CJK_PAD, isWideChar } from './cjk.ts'
 import { getCorners } from './shapes/corners.ts'
 import { getShapeAttachmentPoint } from './shapes/index.ts'
 
@@ -104,11 +105,20 @@ function drawBoxWithGridDimensions(node: AsciiNode, graph: AsciiGraph): Canvas {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
-    const textX = from.x + Math.floor(w / 2) - Math.ceil(line.length / 2) + 1
-    for (let j = 0; j < line.length; j++) {
-      if (textX + j >= 0 && textX + j < box.length && startY + i >= 0 && startY + i < box[0]!.length) {
-        box[textX + j]![startY + i] = line[j]!
+    const vw = visualWidth(line)
+    const textX = from.x + Math.floor(w / 2) - Math.ceil(vw / 2) + 1
+    let col = textX
+    for (let chIdx = 0; chIdx < line.length; chIdx++) {
+      if (col >= 0 && col < box.length && startY + i >= 0 && startY + i < box[0]!.length) {
+        box[col]![startY + i] = line[chIdx]!
       }
+    col++
+    if (isWideChar(line[chIdx]!) && col < box.length) {
+      if (box[col]?.[startY + i] === ' ') {
+        box[col]![startY + i] = CJK_PAD
+      }
+      col++
+    }
     }
   }
 
@@ -147,7 +157,7 @@ export function drawMultiBox(
   let maxTextWidth = 0
   for (const section of sections) {
     for (const line of section) {
-      maxTextWidth = Math.max(maxTextWidth, line.length)
+      maxTextWidth = Math.max(maxTextWidth, visualWidth(line))
     }
   }
   const innerWidth = maxTextWidth + 2 * padding
@@ -197,9 +207,16 @@ export function drawMultiBox(
 
     // Draw section text lines
     for (const line of lines) {
-      const startX = 1 + padding
-      for (let i = 0; i < line.length; i++) {
-        canvas[startX + i]![row] = line[i]!
+      let col = 1 + padding
+      for (let chIdx = 0; chIdx < line.length; chIdx++) {
+        canvas[col]![row] = line[chIdx]!
+        col++
+        if (isWideChar(line[chIdx]!) && col < boxWidth - 1) {
+          if (canvas[col]?.[row] === ' ') {
+            canvas[col]![row] = CJK_PAD
+          }
+          col++
+        }
       }
       row++
     }
@@ -673,7 +690,7 @@ function drawTextOnLine(canvas: Canvas, line: DrawingCoord[], label: string, isU
 
   for (let i = 0; i < lines.length; i++) {
     const lineText = lines[i]!
-    const startX = middleX - Math.floor(lineText.length / 2)
+    const startX = middleX - Math.floor(visualWidth(lineText) / 2)
     drawText(canvas, { x: startX, y: startY + i }, lineText)
   }
 }
@@ -1142,12 +1159,19 @@ export function drawSubgraphLabel(sg: AsciiSubgraph, graph: AsciiGraph): [Canvas
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
     const labelY = 1 + i
-    let labelX = Math.floor(width / 2) - Math.floor(line.length / 2)
-    if (labelX < 1) labelX = 1
+    let col = Math.floor(width / 2) - Math.floor(visualWidth(line) / 2)
+    if (col < 1) col = 1
 
-    for (let j = 0; j < line.length; j++) {
-      if (labelX + j < width && labelY < height) {
-        canvas[labelX + j]![labelY] = line[j]!
+    for (let chIdx = 0; chIdx < line.length; chIdx++) {
+      if (col < width && labelY < height) {
+        canvas[col]![labelY] = line[chIdx]!
+      }
+      col++
+      if (isWideChar(line[chIdx]!) && col < width && labelY < height) {
+        if (canvas[col]?.[labelY] === ' ') {
+          canvas[col]![labelY] = CJK_PAD
+        }
+        col++
       }
     }
   }
