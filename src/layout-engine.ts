@@ -555,23 +555,58 @@ function elkToPositioned(
     }
   }
 
-  // Calculate final bounds including all edge points
-  // ELK should include edges in its dimensions, but we verify and expand if needed
-  let width = elkResult.width ?? 800
-  let height = elkResult.height ?? 600
+  // Calculate final bounds from ALL positioned elements so margins are symmetric.
+  // Previously we used elkResult.width/height as the base and only expanded via
+  // Math.max on edge points — this could leave extra dead space on one side when
+  // ELK's computed dimensions were wider than the actual content.
+  // Now we compute the true content bounding box and derive symmetric margins.
+  let contentMinX = Infinity, contentMinY = Infinity
+  let contentMaxX = -Infinity, contentMaxY = -Infinity
   const arrowMargin = ARROW_HEAD.width
-  const padding = DEFAULTS.padding
+
+  for (const node of nodes) {
+    contentMinX = Math.min(contentMinX, node.x)
+    contentMinY = Math.min(contentMinY, node.y)
+    contentMaxX = Math.max(contentMaxX, node.x + node.width)
+    contentMaxY = Math.max(contentMaxY, node.y + node.height)
+  }
+
+  for (const group of groups) {
+    contentMinX = Math.min(contentMinX, group.x)
+    contentMinY = Math.min(contentMinY, group.y)
+    contentMaxX = Math.max(contentMaxX, group.x + group.width)
+    contentMaxY = Math.max(contentMaxY, group.y + group.height)
+  }
 
   for (const edge of edges) {
     for (const p of edge.points) {
-      width = Math.max(width, p.x + arrowMargin + padding)
-      height = Math.max(height, p.y + arrowMargin + padding)
+      contentMinX = Math.min(contentMinX, p.x)
+      contentMinY = Math.min(contentMinY, p.y)
+      contentMaxX = Math.max(contentMaxX, p.x + arrowMargin)
+      contentMaxY = Math.max(contentMaxY, p.y + arrowMargin)
     }
-    if (edge.labelPosition) {
-      width = Math.max(width, edge.labelPosition.x + 60 + padding)
-      height = Math.max(height, edge.labelPosition.y + 20 + padding)
+    if (edge.labelPosition && edge.label) {
+      const metrics = measureMultilineText(edge.label, FONT_SIZES.edgeLabel, FONT_WEIGHTS.edgeLabel)
+      const labelPad = 4
+      const hw = metrics.width / 2 + labelPad
+      const hh = metrics.height / 2 + labelPad
+      contentMinX = Math.min(contentMinX, edge.labelPosition.x - hw)
+      contentMinY = Math.min(contentMinY, edge.labelPosition.y - hh)
+      contentMaxX = Math.max(contentMaxX, edge.labelPosition.x + hw)
+      contentMaxY = Math.max(contentMaxY, edge.labelPosition.y + hh)
     }
   }
+
+  // Content bounds found: derive viewBox with symmetric margins.
+  // contentMinX/Y is the effective left/top padding (ELK applies padding via elk.padding).
+  // Adding the same amount to the right/bottom ensures mirrored margins.
+  const width = contentMinX < Infinity
+    ? Math.max(contentMaxX + contentMinX, 100)
+    : (elkResult.width ?? 800)
+
+  const height = contentMinY < Infinity
+    ? Math.max(contentMaxY + contentMinY, 100)
+    : (elkResult.height ?? 600)
 
   return {
     width,
